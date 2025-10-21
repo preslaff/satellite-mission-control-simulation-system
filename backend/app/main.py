@@ -7,12 +7,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-# Import API routes (will be created)
-# from app.api.routes import satellites, coordinates, telemetry, predictions
-# from app.api import websocket
+# Import API routes
+from app.api.routes import satellites
 
 # Import core configuration
-# from app.core.config import settings
+from app.core.config import settings
 
 
 @asynccontextmanager
@@ -75,8 +74,8 @@ async def health_check():
     }
 
 
-# Include API routers (uncomment as implemented)
-# app.include_router(satellites.router, prefix="/api/satellites", tags=["Satellites"])
+# Include API routers
+app.include_router(satellites.router, prefix="/api/satellites", tags=["Satellites"])
 # app.include_router(coordinates.router, prefix="/api/coordinates", tags=["Coordinates"])
 # app.include_router(telemetry.router, prefix="/api/telemetry", tags=["Telemetry"])
 # app.include_router(predictions.router, prefix="/api/predictions", tags=["Predictions"])

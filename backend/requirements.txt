@@ -18,12 +18,12 @@ sgp4==2.23
 astropy==6.1.5
 pyproj==3.7.0
 
-# Machine Learning
-torch==2.5.1
-tensorflow==2.18.0
-scikit-learn==1.5.2
-onnx==1.17.0
-onnxruntime==1.20.0
+# Machine Learning (optional - install separately for ML model training)
+torch>=2.6.0
+tensorflow>=2.18.0
+scikit-learn>=1.5.2
+onnx>=1.17.0
+onnxruntime>=1.20.0
 
 # Data Science & Visualization (for notebooks)
 jupyter==1.1.1
