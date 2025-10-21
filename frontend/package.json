@@ -1,0 +1,28 @@
+{
+  "name": "satellite-mission-control-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./jsconfig.json",
+    "check:watch": "svelte-check --tsconfig ./jsconfig.json --watch"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-auto": "^3.3.1",
+    "@sveltejs/kit": "^2.8.5",
+    "@sveltejs/vite-plugin-svelte": "^4.0.1",
+    "svelte": "^5.1.16",
+    "svelte-check": "^4.0.8",
+    "vite": "^5.4.10"
+  },
+  "dependencies": {
+    "@threlte/core": "^8.0.2",
+    "@threlte/extras": "^9.0.3",
+    "three": "^0.170.0",
+    "axios": "^1.7.7",
+    "date-fns": "^4.1.0"
+  },
+  "type": "module"
+}

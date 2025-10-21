@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with TimescaleDB for time-series data
+  postgres:
+    image: timescale/timescaledb:latest-pg14
+    container_name: satcom-db
+    environment:
+      POSTGRES_USER: satcom
+      POSTGRES_PASSWORD: satcom
+      POSTGRES_DB: satcom
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - satcom-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: satcom-backend
+    environment:
+      - DATABASE_URL=postgresql://satcom:satcom@postgres:5432/satcom
+      - DEBUG=True
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+    networks:
+      - satcom-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # SvelteKit Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: satcom-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - satcom-network
+    command: npm run dev -- --host 0.0.0.0
+
+  # Nginx reverse proxy (production)
+  nginx:
+    image: nginx:alpine
+    container_name: satcom-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - satcom-network
+    profiles:
+      - production
+
+networks:
+  satcom-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

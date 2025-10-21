@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Node
+node_modules/
+npm-debug.log*
+.svelte-kit/
+build/
+dist/
+
+# Git
+.git/
+.gitignore
+
+# IDEs
+.vscode/
+.idea/
+
+# Data
+data/raw/*.tle
+data/raw/*.json
+data/processed/*
+data/models/*.pth
+data/models/*.h5
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/
+
+# Environment
+.env
+.env.local
+
+# Documentation
+*.md
+!README.md
+
+# PDFs
+*.pdf

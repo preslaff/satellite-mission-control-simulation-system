@@ -1,0 +1,467 @@
+# Satellite Mission Control & Simulation System
+
+## Project Overview
+Build a comprehensive satellite mission control application with ML-powered trajectory prediction and course correction capabilities. The system will support multiple coordinate systems, real satellite data integration, and high-fidelity orbital simulations.
+
+## Tech Stack
+- **Backend**: Python (FastAPI)
+- **Frontend**: JavaScript/TypeScript with Vite + React
+- **ML/Data Science**: Jupyter Notebooks for prototyping, PyTorch/TensorFlow for models
+- **Visualization**: Three.js for 3D space visualization
+- **Database**: PostgreSQL for satellite data, TimescaleDB extension for time-series
+- **Real-time**: WebSockets for live telemetry updates
+
+## Architecture
+
+```
+satellite-mission-control/
+├── notebooks/                    # Jupyter notebooks for exploration
+│   ├── 01_data_exploration.ipynb
+│   ├── 02_coordinate_systems.ipynb
+│   ├── 03_orbital_mechanics.ipynb
+│   ├── 04_model_training.ipynb
+│   └── 05_course_correction.ipynb
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── routes/
+│   │   │   │   ├── satellites.py
+│   │   │   │   ├── coordinates.py
+│   │   │   │   ├── telemetry.py
+│   │   │   │   └── predictions.py
+│   │   │   └── websocket.py
+│   │   ├── core/
+│   │   │   ├── config.py
+│   │   │   ├── coordinates/
+│   │   │   │   ├── eci.py
+│   │   │   │   ├── ecef.py
+│   │   │   │   ├── topocentric.py
+│   │   │   │   └── transformations.py
+│   │   │   └── orbital/
+│   │   │       ├── propagator.py
+│   │   │       ├── perturbations.py
+│   │   │       └── maneuvers.py
+│   │   ├── models/
+│   │   │   ├── database.py
+│   │   │   ├── satellite.py
+│   │   │   └── telemetry.py
+│   │   ├── ml/
+│   │   │   ├── trajectory_predictor.py
+│   │   │   ├── anomaly_detector.py
+│   │   │   ├── course_correction_optimizer.py
+│   │   │   └── model_registry.py
+│   │   ├── services/
+│   │   │   ├── data_ingestion.py
+│   │   │   ├── satellite_tracker.py
+│   │   │   └── simulation_engine.py
+│   │   └── main.py
+│   ├── tests/
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Globe3D.jsx
+│   │   │   ├── SatelliteTracker.jsx
+│   │   │   ├── TelemetryPanel.jsx
+│   │   │   ├── CoordinateSystemSelector.jsx
+│   │   │   ├── TrajectoryPredictor.jsx
+│   │   │   └── CourseCorrection.jsx
+│   │   ├── services/
+│   │   │   ├── api.js
+│   │   │   ├── websocket.js
+│   │   │   └── coordinates.js
+│   │   ├── utils/
+│   │   │   ├── orbital.js
+│   │   │   └── conversions.js
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── package.json
+│   └── vite.config.js
+├── data/
+│   ├── raw/                     # TLE data, SpaceX launch data
+│   ├── processed/               # Cleaned and normalized data
+│   └── models/                  # Trained ML models
+└── docker-compose.yml
+```
+
+## Step-by-Step Development Plan
+
+### Phase 1: Foundation & Data Exploration (Week 1-2)
+
+#### Step 1: Environment Setup
+```bash
+# Create project structure
+mkdir -p satellite-mission-control/{backend,frontend,notebooks,data/{raw,processed,models}}
+
+# Backend setup
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install fastapi uvicorn sqlalchemy psycopg2-binary pandas numpy scipy skyfield sgp4 tensorflow torch websockets
+pip install jupyter notebook matplotlib seaborn
+
+# Frontend setup
+cd ../frontend
+npm create vite@latest . -- --template react
+npm install three @react-three/fiber @react-three/drei axios recharts
+```
+
+#### Step 2: Data Acquisition (Jupyter Notebook)
+**Notebook: `01_data_exploration.ipynb`**
+- Fetch TLE (Two-Line Element) data from CelesTrak and Space-Track.org
+- SpaceX launch data from SpaceX API or public datasets
+- Satellite telemetry data (use historical Starlink data as example)
+- Store in `data/raw/`
+
+**Data Sources**:
+- CelesTrak: https://celestrak.org/NORAD/elements/
+- Space-Track.org API (requires registration)
+- SpaceX API: https://api.spacexdata.com/v4/
+- N2YO.com API for real-time tracking
+
+#### Step 3: Coordinate System Implementation (Jupyter Notebook)
+**Notebook: `02_coordinate_systems.ipynb`**
+- Implement ECI (J2000) coordinate system
+- Implement ECEF (WGS84) transformations
+- Implement topocentric (ENU/NED) systems
+- Create conversion functions between all systems
+- Validate with known satellite positions
+
+**Key Libraries**:
+- `skyfield` for high-accuracy coordinate transformations
+- `astropy` for astronomical calculations
+- `pyproj` for geodetic transformations
+
+### Phase 2: Orbital Mechanics & Simulation (Week 3-4)
+
+#### Step 4: Orbital Propagation (Jupyter Notebook)
+**Notebook: `03_orbital_mechanics.ipynb`**
+- Implement SGP4 propagator for TLE-based orbits
+- Add perturbation models (J2, atmospheric drag, solar radiation pressure)
+- Create high-fidelity numerical integrator (Runge-Kutta)
+- Validate against real satellite trajectories
+
+#### Step 5: Backend Core Development
+**Files to create**:
+- `backend/app/core/coordinates/*.py` - Coordinate system implementations
+- `backend/app/core/orbital/*.py` - Orbital mechanics engines
+- `backend/app/models/*.py` - Database models
+- `backend/app/services/satellite_tracker.py` - Real-time tracking service
+
+**Key Features**:
+- SGP4 propagation from TLE
+- Coordinate transformations API
+- Real-time satellite position calculations
+- Ground track computation
+
+### Phase 3: Machine Learning Models (Week 5-6)
+
+#### Step 6: Model Development (Jupyter Notebook)
+**Notebook: `04_model_training.ipynb`**
+
+**Model 1: Trajectory Prediction**
+- **Input**: Historical position/velocity vectors, orbital elements, time
+- **Output**: Future position/velocity predictions
+- **Architecture**: LSTM or Transformer for time-series prediction
+- **Training Data**: 6-12 months of satellite tracking data
+- **Metrics**: RMSE of position error, prediction horizon accuracy
+
+**Model 2: Anomaly Detection**
+- **Input**: Telemetry streams (position, velocity, attitude)
+- **Output**: Anomaly probability score
+- **Architecture**: Autoencoder or Isolation Forest
+- **Training Data**: Normal operations + labeled anomalies
+- **Metrics**: Precision, recall, F1-score, false positive rate
+
+**Model 3: Course Correction Optimizer**
+- **Input**: Current state, desired state, constraints (fuel, time)
+- **Output**: Optimal delta-V maneuver sequence
+- **Architecture**: Reinforcement Learning (PPO/SAC) or optimization-based
+- **Training**: Simulated scenarios with various initial conditions
+- **Metrics**: Fuel efficiency, time to target, success rate
+
+#### Step 7: Model Integration
+**Notebook: `05_course_correction.ipynb`**
+- Test models on validation data
+- Optimize inference speed
+- Export models to ONNX or SavedModel format
+- Create model serving endpoints
+
+**Files to create**:
+- `backend/app/ml/*.py` - ML model classes
+- `backend/app/api/routes/predictions.py` - Prediction endpoints
+
+### Phase 4: Backend API Development (Week 7-8)
+
+#### Step 8: RESTful API
+**Endpoints to implement**:
+
+```python
+# Satellite Management
+GET    /api/satellites                    # List all tracked satellites
+GET    /api/satellites/{id}               # Get satellite details
+POST   /api/satellites                    # Add new satellite (TLE)
+PUT    /api/satellites/{id}               # Update satellite data
+
+# Coordinate Systems
+GET    /api/coordinates/systems           # List available systems
+POST   /api/coordinates/transform         # Transform between systems
+GET    /api/coordinates/satellite/{id}    # Get satellite in specified system
+
+# Telemetry & Tracking
+GET    /api/telemetry/{id}/current        # Current satellite state
+GET    /api/telemetry/{id}/history        # Historical data
+GET    /api/telemetry/{id}/ground-track   # Ground track visualization
+
+# Predictions
+POST   /api/predictions/trajectory        # Predict future trajectory
+POST   /api/predictions/collision         # Collision risk assessment
+POST   /api/predictions/visibility        # Ground station visibility
+
+# Course Correction
+POST   /api/maneuvers/optimize            # Optimize maneuver sequence
+POST   /api/maneuvers/simulate            # Simulate maneuver effect
+GET    /api/maneuvers/{id}/delta-v        # Calculate required delta-V
+
+# Simulation
+POST   /api/simulation/create             # Create simulation scenario
+GET    /api/simulation/{id}/run           # Run simulation
+POST   /api/simulation/{id}/step          # Step through simulation
+```
+
+#### Step 9: WebSocket Implementation
+**Real-time features**:
+- Live telemetry streaming
+- Position updates every 1-5 seconds
+- Anomaly alerts
+- Simulation playback
+
+**File**: `backend/app/api/websocket.py`
+
+### Phase 5: Frontend Development (Week 9-10)
+
+#### Step 10: 3D Visualization
+**Component**: `Globe3D.jsx`
+- Three.js Earth model with textures
+- Satellite orbits rendered as lines
+- Real-time satellite position updates
+- Ground station markers
+- Coordinate system axis visualization
+
+**Libraries**:
+- `@react-three/fiber` for React + Three.js
+- `@react-three/drei` for helpers
+
+#### Step 11: Mission Control Interface
+**Components to build**:
+- `SatelliteTracker.jsx` - Real-time tracking display
+- `TelemetryPanel.jsx` - Live telemetry data
+- `CoordinateSystemSelector.jsx` - Switch between ECI/ECEF/etc
+- `TrajectoryPredictor.jsx` - ML prediction visualization
+- `CourseCorrection.jsx` - Maneuver planning interface
+
+**Features**:
+- Multi-satellite tracking
+- Orbit prediction visualization (next 24 hours)
+- Ground track display
+- Telemetry charts (altitude, velocity, etc.)
+- Coordinate system comparison view
+
+#### Step 12: Integration & UX
+- Connect frontend to backend API
+- Implement WebSocket client
+- Add loading states and error handling
+- Create responsive layout
+- Add dark mode (space theme!)
+
+### Phase 6: ML Model Optimization (Week 11)
+
+#### Step 13: Model Performance Tuning
+**Efficiency Metrics to Optimize**:
+1. **Inference Speed**: Target <100ms for trajectory prediction
+2. **Memory Usage**: Keep models <500MB for deployability
+3. **Accuracy**: Position error <1km at 24h prediction horizon
+4. **Training Time**: Enable rapid retraining with new data
+
+**Optimization Techniques**:
+- Model quantization (INT8)
+- Pruning unnecessary layers
+- Knowledge distillation (teacher-student)
+- Batch inference for multiple satellites
+- GPU acceleration with CUDA
+
+**Model Selection Reconsideration**:
+- Compare LSTM vs Transformer vs hybrid
+- Evaluate physics-informed neural networks (PINNs)
+- Test ensemble methods
+- Benchmark against SGP4 baseline
+
+#### Step 14: Model Monitoring
+- Track prediction accuracy over time
+- A/B testing different model versions
+- Automatic retraining triggers
+- Model drift detection
+
+**File**: `backend/app/ml/model_registry.py`
+
+### Phase 7: Testing & Deployment (Week 12)
+
+#### Step 15: Testing
+- Unit tests for coordinate transformations
+- Integration tests for API endpoints
+- End-to-end tests for simulation flows
+- Load testing for WebSocket connections
+- ML model validation tests
+
+#### Step 16: Docker & Deployment
+```yaml
+# docker-compose.yml
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg14
+  
+  backend:
+    build: ./backend
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres/satcom
+  
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+  
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+```
+
+## Key Technical Decisions
+
+### Why FastAPI for Backend?
+- Native async support for real-time operations
+- Automatic API documentation (OpenAPI)
+- Fast performance for ML inference
+- Easy WebSocket integration
+
+### Why React + Three.js for Frontend?
+- Declarative 3D rendering with React Three Fiber
+- Rich ecosystem for data visualization
+- WebSocket integration for real-time updates
+- Excellent performance for complex 3D scenes
+
+### ML Model Architecture Recommendations
+
+**Trajectory Prediction**: 
+- **Primary**: Bidirectional LSTM with attention
+- **Alternative**: Physics-Informed Neural Network (PINN)
+- **Reasoning**: Time-series nature of orbital data, attention helps focus on perturbations
+
+**Anomaly Detection**:
+- **Primary**: Variational Autoencoder (VAE)
+- **Alternative**: Isolation Forest for baseline
+- **Reasoning**: VAE learns normal distribution, good for unsupervised learning
+
+**Course Correction**:
+- **Primary**: Proximal Policy Optimization (PPO) with custom reward shaping
+- **Alternative**: Model Predictive Control (MPC) with learned dynamics
+- **Reasoning**: RL can discover non-intuitive maneuvers, MPC provides guarantees
+
+## Data Requirements
+
+### Training Data Needs
+- **Minimum**: 1000 satellite orbits × 6 months = ~4.3M data points
+- **Optimal**: 10,000 satellites × 1 year = ~87.6M data points
+- **Storage**: ~10GB for features, ~50GB including raw telemetry
+
+### Features for ML Models
+- Position (x, y, z) in ECI
+- Velocity (vx, vy, vz)
+- Orbital elements (a, e, i, Ω, ω, ν)
+- Time of epoch
+- Solar activity indices (F10.7)
+- Atmospheric density estimates
+- Previous maneuvers (if available)
+
+## Development Priorities
+
+### Must-Have (MVP)
+1. Real-time satellite tracking (SGP4)
+2. Coordinate system transformations
+3. 3D visualization with Earth
+4. Basic trajectory prediction (24h)
+5. Historical telemetry display
+
+### Should-Have
+1. ML-powered trajectory prediction
+2. Course correction optimization
+3. Multiple satellite comparison
+4. Ground station visibility
+5. Collision avoidance warnings
+
+### Nice-to-Have
+1. Anomaly detection
+2. Orbital debris tracking
+3. SpaceX launch integration
+4. Mission planning tools
+5. Export to STK format
+
+## Performance Targets
+
+- **API Response Time**: <200ms for single satellite query
+- **WebSocket Latency**: <50ms for telemetry updates
+- **3D Rendering**: 60 FPS with up to 100 satellites
+- **ML Inference**: <100ms for 24h trajectory prediction
+- **Database Queries**: <50ms for telemetry retrieval
+
+## Getting Started Commands
+
+```bash
+# Start Jupyter for prototyping
+cd notebooks
+jupyter notebook
+
+# Start backend development server
+cd backend
+source venv/bin/activate
+uvicorn app.main:app --reload
+
+# Start frontend development server
+cd frontend
+npm run dev
+
+# Run full stack with Docker
+docker-compose up --build
+```
+
+## Next Steps for Claude Code
+
+1. **Start with notebooks**: Run data exploration and coordinate system validation first
+2. **Build core backend**: Implement coordinate transformations and SGP4 propagation
+3. **Create basic API**: Get satellite tracking endpoints working
+4. **Develop ML models**: Train trajectory prediction model
+5. **Build frontend**: Create 3D visualization
+6. **Integrate**: Connect all components
+7. **Optimize**: Tune ML models and performance
+
+## Resources & References
+
+- **Orbital Mechanics**: "Fundamentals of Astrodynamics" by Bate, Mueller, White
+- **Coordinate Systems**: IERS Technical Note No. 36
+- **SGP4**: Revisiting Spacetrack Report #3 (Vallado et al.)
+- **ML for Satellites**: "Machine Learning for Spacecraft Operations" papers
+- **Libraries**: skyfield, astropy, sgp4, pyproj documentation
+
+## Questions to Address During Development
+
+1. Should we use real-time TLE updates or cached data?
+2. What precision is needed for coordinate transformations? (meter vs km)
+3. How often should ML models be retrained?
+4. Should we support historical playback of missions?
+5. What level of physics fidelity for simulations? (J2 only vs full force model)
+6. GPU required for ML inference or CPU sufficient?
+
+---
+
+**Remember**: Start simple, validate often, and iterate based on real data and user needs. The goal is a working system first, optimization second.
