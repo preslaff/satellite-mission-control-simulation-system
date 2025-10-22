@@ -5,7 +5,7 @@
 	import TelemetryPanel from '$lib/components/TelemetryPanel.svelte';
 	import CoordinateSystemSelector from '$lib/components/CoordinateSystemSelector.svelte';
 	import GroundStationPanel from '$lib/components/GroundStationPanel.svelte';
-	import { satellites, selectedSatellite } from '$lib/stores/satellites';
+	import { satellites, selectedSatellites } from '$lib/stores/satellites';
 
 	let backendStatus = 'Checking...';
 	let apiConnected = false;
@@ -84,7 +84,7 @@
 	function changeGroup(group) {
 		selectedGroup = group.id;
 		satelliteLimit = group.limit;
-		selectedSatellite.set(null);
+		selectedSatellites.set([]);
 		fetchSatellites();
 	}
 
