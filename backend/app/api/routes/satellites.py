@@ -9,7 +9,7 @@ from app.services.satellite_fetcher import satellite_fetcher
 router = APIRouter()
 
 
-@router.get("/")
+@router.get("")
 async def list_satellites(
     group: str = Query(default="starlink", description="Satellite group (starlink, stations, weather, etc.)"),
     limit: int = Query(default=10, ge=1, le=100, description="Maximum number of satellites to return")

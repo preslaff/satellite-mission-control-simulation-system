@@ -9,6 +9,9 @@ from typing import List, Dict, Optional
 import numpy as np
 from sgp4.api import Satrec, jday
 import math
+import json
+import os
+from pathlib import Path
 
 
 class SatelliteFetcher:
@@ -29,6 +32,42 @@ class SatelliteFetcher:
         self.cache_timestamp = {}
         self.cache_duration = timedelta(hours=1)
 
+        # Setup persistent cache directory
+        self.cache_dir = Path(__file__).parent.parent.parent / "data" / "cache"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Load cached data from disk
+        self._load_cache_from_disk()
+
+    def _load_cache_from_disk(self):
+        """Load cached TLE data from disk"""
+        for group in self.GROUPS.keys():
+            cache_file = self.cache_dir / f"{group}_tle.json"
+            if cache_file.exists():
+                try:
+                    with open(cache_file, 'r') as f:
+                        cache_data = json.load(f)
+                        self.cache[group] = cache_data['satellites']
+                        self.cache_timestamp[group] = datetime.fromisoformat(cache_data['timestamp'])
+                        print(f"Loaded {len(self.cache[group])} satellites from cache for group '{group}'")
+                except Exception as e:
+                    print(f"Error loading cache for {group}: {e}")
+
+    def _save_cache_to_disk(self, group: str):
+        """Save cached TLE data to disk"""
+        if group in self.cache:
+            try:
+                cache_file = self.cache_dir / f"{group}_tle.json"
+                cache_data = {
+                    'satellites': self.cache[group],
+                    'timestamp': self.cache_timestamp[group].isoformat()
+                }
+                with open(cache_file, 'w') as f:
+                    json.dump(cache_data, f, indent=2)
+                print(f"Saved {len(self.cache[group])} satellites to cache for group '{group}'")
+            except Exception as e:
+                print(f"Error saving cache for {group}: {e}")
+
     def fetch_group(self, group: str = 'starlink', limit: Optional[int] = None) -> List[Dict]:
         """
         Fetch satellite group from CelesTrak
@@ -42,14 +81,18 @@ class SatelliteFetcher:
         """
         group_key = self.GROUPS.get(group, group)
 
+        # Return fresh cache if available
         if group in self.cache:
             if datetime.now() - self.cache_timestamp[group] < self.cache_duration:
+                print(f"Using fresh cache for group '{group}' ({len(self.cache[group])} satellites)")
                 satellites = self.cache[group]
                 return satellites[:limit] if limit else satellites
 
+        # Try to fetch from CelesTrak
         try:
             url = f"{self.BASE_URL}gp.php?GROUP={group_key}&FORMAT=tle"
-            response = requests.get(url, timeout=10)
+            print(f"Fetching TLE data from CelesTrak for group '{group}'...")
+            response = requests.get(url, timeout=30)  # Increased timeout to 30 seconds
             response.raise_for_status()
 
             tle_text = response.text
@@ -65,20 +108,32 @@ class SatelliteFetcher:
                         'NORAD_CAT_ID': int(lines[i + 2][2:7])
                     })
 
+            # Update memory and disk cache
             self.cache[group] = satellites
             self.cache_timestamp[group] = datetime.now()
+            self._save_cache_to_disk(group)
 
+            print(f"Successfully fetched {len(satellites)} satellites for group '{group}'")
             return satellites[:limit] if limit else satellites
 
         except Exception as e:
-            print(f"Error fetching satellites: {e}")
+            print(f"Error fetching satellites from CelesTrak: {e}")
+
+            # Fallback to stale cache if available
+            if group in self.cache:
+                age_minutes = (datetime.now() - self.cache_timestamp[group]).total_seconds() / 60
+                print(f"Falling back to cached data for group '{group}' (age: {age_minutes:.1f} minutes)")
+                satellites = self.cache[group]
+                return satellites[:limit] if limit else satellites
+
+            print(f"No cached data available for group '{group}'")
             return []
 
     def fetch_by_norad_id(self, norad_id: int) -> Optional[Dict]:
         """Fetch specific satellite by NORAD catalog number"""
         try:
             url = f"{self.BASE_URL}gp.php?CATNR={norad_id}&FORMAT=tle"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=30)  # Increased timeout to 30 seconds
             response.raise_for_status()
 
             tle_text = response.text
