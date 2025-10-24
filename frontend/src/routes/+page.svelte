@@ -1,16 +1,20 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import Globe3D from '$lib/components/Globe3D.svelte';
 	import SatelliteTracker from '$lib/components/SatelliteTracker.svelte';
 	import TelemetryPanel from '$lib/components/TelemetryPanel.svelte';
 	import CoordinateSystemSelector from '$lib/components/CoordinateSystemSelector.svelte';
 	import GroundStationPanel from '$lib/components/GroundStationPanel.svelte';
-	import { satellites, selectedSatellites } from '$lib/stores/satellites';
+	import PassPrediction from '$lib/components/PassPrediction.svelte';
+	import { satellites, selectedSatellites, modalOpen } from '$lib/stores/satellites';
+	import { websocketService } from '$lib/services/websocket';
 
 	let backendStatus = 'Checking...';
 	let apiConnected = false;
+	let wsConnected = false;
 	let satelliteData = [];
-	let loading = true;
+	let initialLoading = true;  // Only true on first load
+	let updating = false;       // True during background updates
 	let errorMessage = '';
 	let selectedGroup = 'stations';
 	let satelliteLimit = 20;
@@ -23,6 +27,9 @@
 
 	// Coordinate system state
 	let coordinateSystem = 'ECI';
+
+	// Sync modal state with showPositionInput
+	$: modalOpen.set(showPositionInput);
 
 	const availableGroups = [
 		{ id: 'stations', name: 'Space Stations', limit: 10 },
@@ -44,8 +51,14 @@
 	}
 
 	async function fetchSatellites() {
-		loading = true;
-		errorMessage = '';
+		const isInitialLoad = satelliteData.length === 0;
+
+		// Only show loading spinner on first load, use subtle indicator for updates
+		if (isInitialLoad) {
+			initialLoading = true;
+		} else {
+			updating = true;
+		}
 
 		try {
 			const response = await fetch(`http://localhost:8000/api/satellites?group=${selectedGroup}&limit=${satelliteLimit}`);
@@ -72,12 +85,15 @@
 			}));
 
 			satellites.set(satelliteData);
-			loading = false;
+			errorMessage = '';  // Clear any previous errors
 
 		} catch (error) {
 			errorMessage = `Error loading satellites: ${error.message}`;
-			loading = false;
 			console.error('Error fetching satellites:', error);
+		} finally {
+			// Always clear loading states in finally block
+			initialLoading = false;
+			updating = false;
 		}
 	}
 
@@ -101,7 +117,8 @@
 			id: Date.now(), // Unique ID
 			lat: lat,
 			lon: lon,
-			name: inputName || `Station ${groundStations.length + 1}`
+			name: inputName || `Station ${groundStations.length + 1}`,
+			showCone: true // Cone visible by default
 		};
 
 		groundStations = [...groundStations, newStation];
@@ -120,6 +137,12 @@
 		console.log('Ground station added:', newStation);
 	}
 
+	function toggleCone(stationId) {
+		groundStations = groundStations.map(s =>
+			s.id === stationId ? { ...s, showCone: !s.showCone } : s
+		);
+	}
+
 	function removeGroundStation(stationId) {
 		groundStations = groundStations.filter(s => s.id !== stationId);
 
@@ -134,20 +157,78 @@
 		console.log('Ground station selected:', station);
 	}
 
+	// Subscribe to WebSocket when selected satellites change
+	$: if (wsConnected && satelliteData.length > 0) {
+		const satelliteIds = satelliteData.map(sat => sat.id);
+		websocketService.subscribeSatellites(satelliteIds);
+	}
+
+	// Save ground stations to localStorage whenever they change
+	$: if (typeof window !== 'undefined') {
+		localStorage.setItem('groundStations', JSON.stringify(groundStations));
+		if (selectedGroundStation) {
+			localStorage.setItem('selectedGroundStation', JSON.stringify(selectedGroundStation));
+		}
+	}
+
 	onMount(() => {
+		// Load saved ground stations from localStorage
+		const savedStations = localStorage.getItem('groundStations');
+		if (savedStations) {
+			try {
+				groundStations = JSON.parse(savedStations);
+				console.log('Loaded', groundStations.length, 'saved ground stations');
+			} catch (error) {
+				console.error('Error loading ground stations:', error);
+			}
+		}
+
+		// Load selected ground station
+		const savedSelected = localStorage.getItem('selectedGroundStation');
+		if (savedSelected && groundStations.length > 0) {
+			try {
+				const savedStation = JSON.parse(savedSelected);
+				// Find the station in the loaded list by ID
+				selectedGroundStation = groundStations.find(s => s.id === savedStation.id) || groundStations[0];
+			} catch (error) {
+				console.error('Error loading selected station:', error);
+				selectedGroundStation = groundStations[0] || null;
+			}
+		}
+
 		checkBackend();
 		fetchSatellites();
 
-		// Update from backend every 15 seconds for accuracy
-		const interval = setInterval(fetchSatellites, 15000);
+		// Connect to WebSocket for real-time updates
+		websocketService.onConnect(() => {
+			wsConnected = true;
+			backendStatus = 'Backend: Connected (Real-time)';
+			console.log('Real-time tracking enabled');
+		});
 
-		return () => clearInterval(interval);
+		websocketService.onDisconnect(() => {
+			wsConnected = false;
+			backendStatus = 'Backend: Reconnecting...';
+			console.log('Real-time tracking disconnected');
+		});
+
+		websocketService.onError((error) => {
+			console.error('WebSocket error:', error);
+		});
+
+		// Connect to WebSocket
+		websocketService.connect();
+	});
+
+	onDestroy(() => {
+		// Disconnect WebSocket when component is destroyed
+		websocketService.disconnect();
 	});
 </script>
 
 <div class="mission-control">
 	<header class="header">
-		<h1>Satellite Mission Control & Simulation System</h1>
+		<h1>Satellite Mission Control Simulation System</h1>
 		<div class="header-controls">
 			<div class="status" class:connected={apiConnected}>
 				<span class="status-indicator"></span>
@@ -184,12 +265,13 @@
 				selectedGroundStation={selectedGroundStation}
 				onSelect={selectGroundStation}
 				onRemove={removeGroundStation}
+				onToggleCone={toggleCone}
 			/>
 			</div>
 		</div>
 
 		<div class="center-panel">
-			{#if loading}
+			{#if initialLoading}
 				<div class="loading-state">
 					<div class="spinner"></div>
 					<p>Loading satellite data from CelesTrak...</p>
@@ -200,8 +282,14 @@
 					<button on:click={fetchSatellites}>Retry</button>
 				</div>
 			{:else}
-				<div class="globe-wrapper">
+				<div class="globe-wrapper" class:updating>
 					<Globe3D satellites={satelliteData} groundStations={groundStations} selectedGroundStation={selectedGroundStation} />
+					{#if updating}
+						<div class="update-badge">
+							<span class="pulse-dot"></span>
+							Updating data...
+						</div>
+					{/if}
 					<div class="sat-info">
 						<p>{satelliteData.length} satellites tracked</p>
 						<p class="user-pos-info">📍 {groundStations.length} ground stations</p>
@@ -211,7 +299,12 @@
 		</div>
 
 		<div class="right-panel">
-			<TelemetryPanel />
+			<div class="panel-section">
+				<TelemetryPanel />
+			</div>
+			<div class="panel-section">
+				<PassPrediction satellites={satelliteData} groundStations={groundStations} />
+			</div>
 		</div>
 	</main>
 
@@ -328,7 +421,7 @@
 	.content {
 		flex: 1;
 		display: grid;
-		grid-template-columns: 300px 1fr 350px;
+		grid-template-columns: 300px 1fr 300px;
 		gap: 1rem;
 		padding: 1rem;
 		overflow: hidden;
@@ -416,6 +509,30 @@
 		position: relative;
 	}
 
+	.update-badge {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		background: rgba(100, 108, 255, 0.9);
+		color: white;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		font-size: 0.85rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		z-index: 10;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	}
+
+	.pulse-dot {
+		width: 8px;
+		height: 8px;
+		background: #22c55e;
+		border-radius: 50%;
+		animation: pulse 2s ease-in-out infinite;
+	}
+
 	.sat-info {
 		position: absolute;
 		bottom: 1rem;
@@ -465,7 +582,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 999998;
 		backdrop-filter: blur(4px);
 	}
 
@@ -477,6 +594,8 @@
 		max-width: 500px;
 		width: 90%;
 		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+		position: relative;
+		z-index: 999999;
 	}
 
 	.modal-content h3 {

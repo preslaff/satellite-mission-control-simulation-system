@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import numpy as np
 from sgp4.api import Satrec, jday
+import math
 
 
 class SatelliteFetcher:
@@ -238,6 +239,207 @@ class SatelliteFetcher:
                 })
 
         return orbit_points
+
+    def lat_lon_to_ecef(self, lat_deg: float, lon_deg: float, alt_km: float = 0.0) -> tuple:
+        """
+        Convert latitude/longitude to ECEF coordinates
+
+        Args:
+            lat_deg: Latitude in degrees
+            lon_deg: Longitude in degrees
+            alt_km: Altitude in km (default 0)
+
+        Returns:
+            Tuple of (x, y, z) in kilometers
+        """
+        EARTH_RADIUS_KM = 6378.137  # WGS84 equatorial radius
+
+        lat_rad = math.radians(lat_deg)
+        lon_rad = math.radians(lon_deg)
+
+        x = (EARTH_RADIUS_KM + alt_km) * math.cos(lat_rad) * math.cos(lon_rad)
+        y = (EARTH_RADIUS_KM + alt_km) * math.cos(lat_rad) * math.sin(lon_rad)
+        z = (EARTH_RADIUS_KM + alt_km) * math.sin(lat_rad)
+
+        return (x, y, z)
+
+    def calculate_elevation_angle(self, sat_pos: tuple, station_pos: tuple) -> float:
+        """
+        Calculate elevation angle from ground station to satellite
+
+        Args:
+            sat_pos: Satellite position (x, y, z) in km
+            station_pos: Ground station position (x, y, z) in km
+
+        Returns:
+            Elevation angle in degrees
+        """
+        # Vector from station to satellite
+        dx = sat_pos[0] - station_pos[0]
+        dy = sat_pos[1] - station_pos[1]
+        dz = sat_pos[2] - station_pos[2]
+
+        # Distance
+        distance = math.sqrt(dx**2 + dy**2 + dz**2)
+
+        # Up direction (radial from Earth center through station)
+        station_dist = math.sqrt(station_pos[0]**2 + station_pos[1]**2 + station_pos[2]**2)
+        up_x = station_pos[0] / station_dist
+        up_y = station_pos[1] / station_dist
+        up_z = station_pos[2] / station_dist
+
+        # Dot product of station-to-sat vector with up direction
+        dot_product = (dx * up_x + dy * up_y + dz * up_z)
+
+        # Calculate elevation angle
+        elevation_rad = math.asin(dot_product / distance)
+        elevation_deg = math.degrees(elevation_rad)
+
+        return elevation_deg
+
+    def calculate_azimuth_angle(self, sat_pos: tuple, station_pos: tuple, station_lat: float, station_lon: float) -> float:
+        """
+        Calculate azimuth angle from ground station to satellite
+
+        Args:
+            sat_pos: Satellite position (x, y, z) in km (ECEF)
+            station_pos: Ground station position (x, y, z) in km (ECEF)
+            station_lat: Ground station latitude in degrees
+            station_lon: Ground station longitude in degrees
+
+        Returns:
+            Azimuth angle in degrees (0° = North, 90° = East, 180° = South, 270° = West)
+        """
+        # Vector from station to satellite
+        dx = sat_pos[0] - station_pos[0]
+        dy = sat_pos[1] - station_pos[1]
+        dz = sat_pos[2] - station_pos[2]
+
+        # Convert station lat/lon to radians
+        lat_rad = math.radians(station_lat)
+        lon_rad = math.radians(station_lon)
+
+        # Local ENU (East-North-Up) basis vectors at station
+        # East vector
+        east_x = -math.sin(lon_rad)
+        east_y = math.cos(lon_rad)
+        east_z = 0
+
+        # North vector
+        north_x = -math.sin(lat_rad) * math.cos(lon_rad)
+        north_y = -math.sin(lat_rad) * math.sin(lon_rad)
+        north_z = math.cos(lat_rad)
+
+        # Project satellite direction onto local horizontal plane (ENU)
+        east_component = dx * east_x + dy * east_y + dz * east_z
+        north_component = dx * north_x + dy * north_y + dz * north_z
+
+        # Calculate azimuth from north (clockwise)
+        azimuth_rad = math.atan2(east_component, north_component)
+        azimuth_deg = math.degrees(azimuth_rad)
+
+        # Normalize to 0-360 degrees
+        if azimuth_deg < 0:
+            azimuth_deg += 360
+
+        return azimuth_deg
+
+    def predict_passes(self, tle_data: Dict, station_lat: float, station_lon: float,
+                      duration_hours: int = 24, min_elevation: float = 10.0) -> List[Dict]:
+        """
+        Predict satellite passes over a ground station
+
+        Args:
+            tle_data: TLE data dictionary
+            station_lat: Ground station latitude in degrees
+            station_lon: Ground station longitude in degrees
+            duration_hours: How many hours ahead to predict (default 24)
+            min_elevation: Minimum elevation angle in degrees (default 10)
+
+        Returns:
+            List of pass dictionaries with rise_time, set_time, max_elevation, etc.
+        """
+        sat = self.create_satrec(tle_data)
+        if not sat:
+            return []
+
+        # Ground station position in ECEF
+        station_pos = self.lat_lon_to_ecef(station_lat, station_lon)
+
+        # Time parameters
+        start_time = datetime.utcnow()
+        step_seconds = 10  # Check every 10 seconds for accuracy
+        num_steps = int(duration_hours * 3600 / step_seconds)
+
+        passes = []
+        current_pass = None
+
+        for i in range(num_steps):
+            dt = start_time + timedelta(seconds=step_seconds * i)
+            jd, fr = jday(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+
+            error_code, position, velocity = sat.sgp4(jd, fr)
+
+            if error_code != 0:
+                continue
+
+            # Calculate elevation angle
+            elevation = self.calculate_elevation_angle(position, station_pos)
+
+            # Detect pass start (rising above minimum elevation)
+            if elevation >= min_elevation and current_pass is None:
+                azimuth = self.calculate_azimuth_angle(position, station_pos, station_lat, station_lon)
+                current_pass = {
+                    'rise_time': dt,
+                    'rise_azimuth': azimuth,
+                    'max_elevation': elevation,
+                    'max_elevation_time': dt,
+                    'elevations': [(dt, elevation, position)]  # Store position for later
+                }
+
+            # Update current pass
+            elif current_pass is not None:
+                if elevation >= min_elevation:
+                    # Still in pass
+                    current_pass['elevations'].append((dt, elevation, position))
+
+                    # Update max elevation
+                    if elevation > current_pass['max_elevation']:
+                        current_pass['max_elevation'] = elevation
+                        current_pass['max_elevation_time'] = dt
+                else:
+                    # Pass ended (dropped below minimum elevation)
+                    last_dt, last_elev, last_pos = current_pass['elevations'][-1]
+                    set_azimuth = self.calculate_azimuth_angle(last_pos, station_pos, station_lat, station_lon)
+
+                    current_pass['set_time'] = last_dt
+                    current_pass['set_azimuth'] = set_azimuth
+                    current_pass['duration_seconds'] = (current_pass['set_time'] - current_pass['rise_time']).total_seconds()
+
+                    # Clean up elevations list (not needed in final output)
+                    del current_pass['elevations']
+
+                    passes.append(current_pass)
+                    current_pass = None
+
+        # Handle pass that extends beyond prediction window
+        if current_pass is not None:
+            last_dt, last_elev, last_pos = current_pass['elevations'][-1]
+            set_azimuth = self.calculate_azimuth_angle(last_pos, station_pos, station_lat, station_lon)
+
+            current_pass['set_time'] = last_dt
+            current_pass['set_azimuth'] = set_azimuth
+            current_pass['duration_seconds'] = (current_pass['set_time'] - current_pass['rise_time']).total_seconds()
+            del current_pass['elevations']
+            passes.append(current_pass)
+
+        # Convert datetime objects to ISO format strings
+        for pass_data in passes:
+            pass_data['rise_time'] = pass_data['rise_time'].isoformat()
+            pass_data['set_time'] = pass_data['set_time'].isoformat()
+            pass_data['max_elevation_time'] = pass_data['max_elevation_time'].isoformat()
+
+        return passes
 
 
 satellite_fetcher = SatelliteFetcher()

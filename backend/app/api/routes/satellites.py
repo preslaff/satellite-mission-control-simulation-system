@@ -120,6 +120,135 @@ async def get_satellite_orbit(
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
+@router.get("/{norad_id}/passes")
+async def predict_satellite_passes(
+    norad_id: int,
+    lat: float = Query(..., description="Ground station latitude in degrees"),
+    lon: float = Query(..., description="Ground station longitude in degrees"),
+    duration: int = Query(default=24, ge=1, le=168, description="Prediction duration in hours"),
+    min_elevation: float = Query(default=10.0, ge=0, le=90, description="Minimum elevation angle in degrees")
+):
+    """
+    Predict satellite passes over a ground station
+
+    Args:
+        norad_id: NORAD catalog number
+        lat: Ground station latitude (-90 to 90)
+        lon: Ground station longitude (-180 to 180)
+        duration: How many hours ahead to predict (1-168)
+        min_elevation: Minimum elevation angle (0-90)
+
+    Returns:
+        List of predicted passes with rise/set times and max elevation
+    """
+    try:
+        # Validate coordinates
+        if lat < -90 or lat > 90:
+            raise HTTPException(status_code=400, detail="Latitude must be between -90 and 90")
+        if lon < -180 or lon > 180:
+            raise HTTPException(status_code=400, detail="Longitude must be between -180 and 180")
+
+        tle_data = satellite_fetcher.fetch_by_norad_id(norad_id)
+
+        if not tle_data:
+            raise HTTPException(status_code=404, detail=f"Satellite {norad_id} not found")
+
+        passes = satellite_fetcher.predict_passes(
+            tle_data,
+            station_lat=lat,
+            station_lon=lon,
+            duration_hours=duration,
+            min_elevation=min_elevation
+        )
+
+        return {
+            'id': tle_data['NORAD_CAT_ID'],
+            'name': tle_data['OBJECT_NAME'],
+            'ground_station': {
+                'lat': lat,
+                'lon': lon
+            },
+            'prediction_duration_hours': duration,
+            'min_elevation': min_elevation,
+            'passes': passes,
+            'pass_count': len(passes)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.get("/{norad_id}/azel")
+async def get_current_azel(
+    norad_id: int,
+    lat: float = Query(..., description="Ground station latitude in degrees"),
+    lon: float = Query(..., description="Ground station longitude in degrees")
+):
+    """
+    Get current azimuth and elevation angles for a satellite from a ground station
+
+    Args:
+        norad_id: NORAD catalog number
+        lat: Ground station latitude (-90 to 90)
+        lon: Ground station longitude (-180 to 180)
+
+    Returns:
+        Current azimuth, elevation, and visibility status
+    """
+    try:
+        # Validate coordinates
+        if lat < -90 or lat > 90:
+            raise HTTPException(status_code=400, detail="Latitude must be between -90 and 90")
+        if lon < -180 or lon > 180:
+            raise HTTPException(status_code=400, detail="Longitude must be between -180 and 180")
+
+        tle_data = satellite_fetcher.fetch_by_norad_id(norad_id)
+
+        if not tle_data:
+            raise HTTPException(status_code=404, detail=f"Satellite {norad_id} not found")
+
+        # Get current satellite position
+        state = satellite_fetcher.propagate_position(tle_data)
+
+        if not state:
+            raise HTTPException(status_code=500, detail="Failed to calculate satellite position")
+
+        # Convert satellite position to tuple for calculations
+        sat_pos = (state['position']['x'], state['position']['y'], state['position']['z'])
+
+        # Get ground station position in ECEF
+        station_pos = satellite_fetcher.lat_lon_to_ecef(lat, lon)
+
+        # Calculate azimuth and elevation
+        elevation = satellite_fetcher.calculate_elevation_angle(sat_pos, station_pos)
+        azimuth = satellite_fetcher.calculate_azimuth_angle(sat_pos, station_pos, lat, lon)
+
+        # Determine if satellite is visible (elevation > 0)
+        is_visible = elevation > 0
+
+        return {
+            'id': tle_data['NORAD_CAT_ID'],
+            'name': tle_data['OBJECT_NAME'],
+            'timestamp': state['timestamp'],
+            'ground_station': {
+                'lat': lat,
+                'lon': lon
+            },
+            'azimuth': round(azimuth, 2),
+            'elevation': round(elevation, 2),
+            'is_visible': is_visible,
+            'position': state['position'],
+            'velocity': state['velocity']
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
 @router.get("/groups/available")
 async def list_available_groups():
     """List available satellite groups"""
@@ -133,3 +262,4 @@ async def list_available_groups():
             "gps": "GPS constellation"
         }
     }
+
