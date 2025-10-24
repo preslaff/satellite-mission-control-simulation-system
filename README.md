@@ -1,5 +1,7 @@
 # Satellite Mission Control Simulation System
 
+![Satellite Mission Control Simulation System](preview.jpeg)
+
 A comprehensive satellite mission control application with ML-powered trajectory prediction and course correction capabilities. Features real-time satellite tracking, multiple coordinate system support, and high-fidelity orbital simulations.
 
 ## Features
