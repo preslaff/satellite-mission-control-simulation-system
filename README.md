@@ -267,6 +267,36 @@ docker-compose --profile production up -d
 - **Space-Track.org:** https://www.space-track.org (requires registration)
 - **SpaceX API:** https://api.spacexdata.com/v4/
 
+### CelesTrak API Best Practices
+
+To avoid getting blocked by CelesTrak, this application implements the following best practices:
+
+**Update Frequency:**
+- CelesTrak updates GP (General Perturbations) data only once every 2 hours
+- Cache duration is set to 2 hours to match this update frequency
+- No need to query more frequently than this interval
+
+**Rate Limiting:**
+- Automatic retry logic with maximum 3 attempts
+- If your IP generates >10,000 HTTP 403 errors per day, it will be temporarily blocked
+- The application checks for HTTP 200 responses explicitly
+- Retries only 2-3 times before stopping and falling back to cache
+
+**Caching Strategy:**
+- TLE data is cached both in memory and on disk (`backend/data/cache/`)
+- Cached data persists across application restarts
+- When CelesTrak is unreachable, the system automatically falls back to cached data
+- This allows the system to continue operating during temporary internet issues
+
+**If You Get Blocked:**
+1. Stop the application/process making excessive requests
+2. Wait 2 hours - the block will automatically clear
+3. Restart the application - it will use cached data until the block clears
+4. Check your code to ensure proper caching and retry logic
+
+**Domain Note:**
+- Always use `celestrak.org` (not `.com`) to avoid HTTP 301 redirects
+
 ## ML Model Performance Targets
 
 - **Trajectory Prediction:** Position error <1km at 24h horizon

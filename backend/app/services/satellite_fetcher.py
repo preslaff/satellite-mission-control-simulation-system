@@ -12,6 +12,7 @@ import math
 import json
 import os
 from pathlib import Path
+import time
 
 
 class SatelliteFetcher:
@@ -30,7 +31,9 @@ class SatelliteFetcher:
     def __init__(self):
         self.cache = {}
         self.cache_timestamp = {}
-        self.cache_duration = timedelta(hours=1)
+        self.cache_duration = timedelta(hours=2)  # Match CelesTrak update frequency
+        self.max_retries = 3  # Max retry attempts per CelesTrak best practices
+        self.retry_delay = 2  # Seconds between retries
 
         # Setup persistent cache directory
         self.cache_dir = Path(__file__).parent.parent.parent / "data" / "cache"
@@ -88,70 +91,117 @@ class SatelliteFetcher:
                 satellites = self.cache[group]
                 return satellites[:limit] if limit else satellites
 
-        # Try to fetch from CelesTrak
-        try:
-            url = f"{self.BASE_URL}gp.php?GROUP={group_key}&FORMAT=tle"
-            print(f"Fetching TLE data from CelesTrak for group '{group}'...")
-            response = requests.get(url, timeout=30)  # Increased timeout to 30 seconds
-            response.raise_for_status()
+        # Try to fetch from CelesTrak with retry logic
+        url = f"{self.BASE_URL}gp.php?GROUP={group_key}&FORMAT=tle"
 
-            tle_text = response.text
-            lines = tle_text.strip().split('\n')
+        for attempt in range(self.max_retries):
+            try:
+                print(f"Fetching TLE data from CelesTrak for group '{group}' (attempt {attempt + 1}/{self.max_retries})...")
+                response = requests.get(url, timeout=30)
 
-            satellites = []
-            for i in range(0, len(lines), 3):
-                if i + 2 < len(lines):
-                    satellites.append({
-                        'OBJECT_NAME': lines[i].strip(),
-                        'TLE_LINE1': lines[i + 1].strip(),
-                        'TLE_LINE2': lines[i + 2].strip(),
-                        'NORAD_CAT_ID': int(lines[i + 2][2:7])
-                    })
+                # Check HTTP status code explicitly
+                if response.status_code == 200:
+                    # Success - process the data
+                    tle_text = response.text
+                    lines = tle_text.strip().split('\n')
 
-            # Update memory and disk cache
-            self.cache[group] = satellites
-            self.cache_timestamp[group] = datetime.now()
-            self._save_cache_to_disk(group)
+                    satellites = []
+                    for i in range(0, len(lines), 3):
+                        if i + 2 < len(lines):
+                            satellites.append({
+                                'OBJECT_NAME': lines[i].strip(),
+                                'TLE_LINE1': lines[i + 1].strip(),
+                                'TLE_LINE2': lines[i + 2].strip(),
+                                'NORAD_CAT_ID': int(lines[i + 2][2:7])
+                            })
 
-            print(f"Successfully fetched {len(satellites)} satellites for group '{group}'")
+                    # Update memory and disk cache
+                    self.cache[group] = satellites
+                    self.cache_timestamp[group] = datetime.now()
+                    self._save_cache_to_disk(group)
+
+                    print(f"Successfully fetched {len(satellites)} satellites for group '{group}'")
+                    return satellites[:limit] if limit else satellites
+
+                elif response.status_code == 403:
+                    # IP blocked by CelesTrak - stop retrying immediately
+                    print(f"WARNING: CelesTrak returned HTTP 403 Forbidden - Your IP may be blocked")
+                    print(f"WARNING: This could be due to exceeding rate limits (>10,000 errors/day)")
+                    print(f"WARNING: Block will auto-clear in 2 hours. Falling back to cached data.")
+                    break  # Don't retry on 403
+
+                else:
+                    # Other HTTP error
+                    print(f"CelesTrak returned HTTP {response.status_code}: {response.reason}")
+                    if attempt < self.max_retries - 1:
+                        print(f"Retrying in {self.retry_delay} seconds...")
+                        time.sleep(self.retry_delay)
+
+            except requests.exceptions.Timeout:
+                print(f"Request timeout after 30 seconds")
+                if attempt < self.max_retries - 1:
+                    print(f"Retrying in {self.retry_delay} seconds...")
+                    time.sleep(self.retry_delay)
+
+            except requests.exceptions.ConnectionError as e:
+                print(f"Connection error: {e}")
+                if attempt < self.max_retries - 1:
+                    print(f"Retrying in {self.retry_delay} seconds...")
+                    time.sleep(self.retry_delay)
+
+            except Exception as e:
+                print(f"Unexpected error fetching satellites from CelesTrak: {e}")
+                if attempt < self.max_retries - 1:
+                    print(f"Retrying in {self.retry_delay} seconds...")
+                    time.sleep(self.retry_delay)
+
+        # All retries failed - fallback to stale cache if available
+        print(f"All {self.max_retries} retry attempts failed for group '{group}'")
+        if group in self.cache:
+            age_hours = (datetime.now() - self.cache_timestamp[group]).total_seconds() / 3600
+            print(f"Falling back to cached data for group '{group}' (age: {age_hours:.1f} hours)")
+            satellites = self.cache[group]
             return satellites[:limit] if limit else satellites
 
-        except Exception as e:
-            print(f"Error fetching satellites from CelesTrak: {e}")
-
-            # Fallback to stale cache if available
-            if group in self.cache:
-                age_minutes = (datetime.now() - self.cache_timestamp[group]).total_seconds() / 60
-                print(f"Falling back to cached data for group '{group}' (age: {age_minutes:.1f} minutes)")
-                satellites = self.cache[group]
-                return satellites[:limit] if limit else satellites
-
-            print(f"No cached data available for group '{group}'")
-            return []
+        print(f"No cached data available for group '{group}'")
+        return []
 
     def fetch_by_norad_id(self, norad_id: int) -> Optional[Dict]:
         """Fetch specific satellite by NORAD catalog number"""
-        try:
-            url = f"{self.BASE_URL}gp.php?CATNR={norad_id}&FORMAT=tle"
-            response = requests.get(url, timeout=30)  # Increased timeout to 30 seconds
-            response.raise_for_status()
+        url = f"{self.BASE_URL}gp.php?CATNR={norad_id}&FORMAT=tle"
 
-            tle_text = response.text
-            lines = tle_text.strip().split('\n')
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.get(url, timeout=30)
 
-            if len(lines) >= 3:
-                return {
-                    'OBJECT_NAME': lines[0].strip(),
-                    'TLE_LINE1': lines[1].strip(),
-                    'TLE_LINE2': lines[2].strip(),
-                    'NORAD_CAT_ID': int(lines[2][2:7])
-                }
+                if response.status_code == 200:
+                    tle_text = response.text
+                    lines = tle_text.strip().split('\n')
 
-            return None
+                    if len(lines) >= 3:
+                        return {
+                            'OBJECT_NAME': lines[0].strip(),
+                            'TLE_LINE1': lines[1].strip(),
+                            'TLE_LINE2': lines[2].strip(),
+                            'NORAD_CAT_ID': int(lines[2][2:7])
+                        }
+                    return None
 
-        except Exception as e:
-            print(f"Error fetching satellite {norad_id}: {e}")
-            return None
+                elif response.status_code == 403:
+                    print(f"WARNING: CelesTrak blocked (HTTP 403) - Cannot fetch satellite {norad_id}")
+                    break
+
+                else:
+                    print(f"CelesTrak returned HTTP {response.status_code} for satellite {norad_id}")
+                    if attempt < self.max_retries - 1:
+                        time.sleep(self.retry_delay)
+
+            except Exception as e:
+                print(f"Error fetching satellite {norad_id}: {e}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+
+        return None
 
     def create_satrec(self, tle_data: Dict) -> Optional[Satrec]:
         """
