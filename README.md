@@ -125,6 +125,12 @@ createdb satcom
 # Update DATABASE_URL in backend/.env
 ```
 
+**Important:** See `backend/DATABASE_SETUP.md` for complete setup instructions including:
+- TimescaleDB extension configuration (requires `shared_preload_libraries` in postgresql.conf)
+- Composite primary key requirements for telemetry table
+- Migration setup with Alembic
+- Troubleshooting common errors
+
 #### Option 2: Docker
 
 ```bash
@@ -287,6 +293,10 @@ To avoid getting blocked by CelesTrak, this application implements the following
 - Cached data persists across application restarts
 - When CelesTrak is unreachable, the system automatically falls back to cached data
 - This allows the system to continue operating during temporary internet issues
+- **Cache-First Lookups:** Individual satellite queries search all group caches before hitting CelesTrak API
+  - Reduces API calls from ~18,000/hour to ~1 call every 2 hours
+  - Prevents IP blocking even with high-frequency frontend polling
+  - Groups cached: stations, starlink, weather, GPS, and more
 
 **If You Get Blocked:**
 1. Stop the application/process making excessive requests

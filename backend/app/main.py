@@ -22,6 +22,18 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize database, load ML models, start background tasks
     print("Starting Satellite Mission Control Simulation System...")
 
+    # Import database functions
+    from app.core.database import init_db, check_db_connection
+
+    # Check database connection
+    if check_db_connection():
+        print("Database connection successful")
+        # Initialize database tables (create if they don't exist)
+        # init_db()  # Uncomment this to auto-create tables on startup
+    else:
+        print("WARNING: Database connection failed - some features may not work")
+        print("Please ensure PostgreSQL is running and configured correctly")
+
     yield
 
     # Shutdown: Cleanup resources
@@ -69,11 +81,15 @@ async def health_check():
     """
     Health check endpoint for monitoring
     """
+    from app.core.database import check_db_connection
+
+    db_status = "operational" if check_db_connection() else "unavailable"
+
     return {
-        "status": "healthy",
+        "status": "healthy" if db_status == "operational" else "degraded",
         "services": {
             "api": "operational",
-            "database": "pending",
+            "database": db_status,
             "ml_models": "pending",
         }
     }

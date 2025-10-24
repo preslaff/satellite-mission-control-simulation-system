@@ -76,7 +76,10 @@ class WebSocketManager:
     async def broadcast(self, message: dict):
         """Broadcast message to all connections"""
         disconnected = []
-        for connection_id, websocket in self.active_connections.items():
+        # Create a snapshot of connections to avoid dictionary size change during iteration
+        connections_snapshot = list(self.active_connections.items())
+
+        for connection_id, websocket in connections_snapshot:
             try:
                 await websocket.send_json(message)
             except Exception as e:
@@ -125,7 +128,10 @@ class WebSocketManager:
 
                 # Send positions to each connection (only satellites they're tracking)
                 disconnected = []
-                for connection_id, websocket in self.active_connections.items():
+                # Create a snapshot of connections to avoid dictionary size change during iteration
+                connections_snapshot = list(self.active_connections.items())
+
+                for connection_id, websocket in connections_snapshot:
                     try:
                         # Filter positions for this connection's tracked satellites
                         tracked = self.tracked_satellites.get(connection_id, set())

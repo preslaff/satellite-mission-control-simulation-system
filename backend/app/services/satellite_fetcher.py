@@ -167,7 +167,24 @@ class SatelliteFetcher:
         return []
 
     def fetch_by_norad_id(self, norad_id: int) -> Optional[Dict]:
-        """Fetch specific satellite by NORAD catalog number"""
+        """
+        Fetch specific satellite by NORAD catalog number
+
+        First searches in existing group caches (stations, starlink, weather, gps)
+        to avoid unnecessary CelesTrak API calls. Only fetches from CelesTrak
+        if the satellite is not found in any cached group.
+        """
+        # STEP 1: Search in existing group caches first
+        for group, satellites in self.cache.items():
+            for sat in satellites:
+                if sat.get('NORAD_CAT_ID') == norad_id:
+                    # Found in cache - return immediately without CelesTrak call
+                    cache_age = (datetime.now() - self.cache_timestamp.get(group, datetime.min)).total_seconds() / 3600
+                    print(f"Using cached satellite {norad_id} from group '{group}' (age: {cache_age:.1f} hours)")
+                    return sat
+
+        # STEP 2: Not found in any cache - fetch from CelesTrak as fallback
+        print(f"Satellite {norad_id} not in cache, fetching from CelesTrak...")
         url = f"{self.BASE_URL}gp.php?CATNR={norad_id}&FORMAT=tle"
 
         for attempt in range(self.max_retries):
