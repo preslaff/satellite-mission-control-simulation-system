@@ -179,8 +179,8 @@ class SatelliteFetcher:
             for sat in satellites:
                 if sat.get('NORAD_CAT_ID') == norad_id:
                     # Found in cache - return immediately without CelesTrak call
-                    cache_age = (datetime.now() - self.cache_timestamp.get(group, datetime.min)).total_seconds() / 3600
-                    print(f"Using cached satellite {norad_id} from group '{group}' (age: {cache_age:.1f} hours)")
+                    # cache_age = (datetime.now() - self.cache_timestamp.get(group, datetime.min)).total_seconds() / 3600
+                    # print(f"Using cached satellite {norad_id} from group '{group}' (age: {cache_age:.1f} hours)")
                     return sat
 
         # STEP 2: Not found in any cache - fetch from CelesTrak as fallback
