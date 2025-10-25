@@ -104,7 +104,7 @@
 		fetchSatellites();
 	}
 
-	function addGroundStation() {
+	async function addGroundStation() {
 		const lat = parseFloat(inputLat);
 		const lon = parseFloat(inputLon);
 
@@ -113,28 +113,57 @@
 			return;
 		}
 
-		const newStation = {
-			id: Date.now(), // Unique ID
-			lat: lat,
-			lon: lon,
-			name: inputName || `Station ${groundStations.length + 1}`,
-			showCone: true // Cone visible by default
-		};
+		const stationName = inputName || `Station ${groundStations.length + 1}`;
 
-		groundStations = [...groundStations, newStation];
+		try {
+			// Save to database via API
+			const response = await fetch('http://localhost:8000/api/ground-stations', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					name: stationName,
+					latitude: lat,
+					longitude: lon,
+					altitude: 0, // Default altitude in meters
+					min_elevation: 10, // Default minimum elevation
+				}),
+			});
 
-		// Auto-select first ground station for topocentric
-		if (groundStations.length === 1) {
-			selectedGroundStation = newStation;
+			if (!response.ok) {
+				throw new Error(`Failed to save ground station: ${response.status}`);
+			}
+
+			const savedStation = await response.json();
+			console.log('Ground station saved to database:', savedStation);
+
+			// Transform to frontend format
+			const newStation = {
+				id: savedStation.id,
+				lat: savedStation.latitude,
+				lon: savedStation.longitude,
+				name: savedStation.name,
+				showCone: true
+			};
+
+			groundStations = [...groundStations, newStation];
+
+			// Auto-select first ground station for topocentric
+			if (groundStations.length === 1) {
+				selectedGroundStation = newStation;
+			}
+
+			// Clear inputs
+			inputLat = '';
+			inputLon = '';
+			inputName = '';
+			showPositionInput = false;
+
+		} catch (error) {
+			console.error('Error saving ground station:', error);
+			alert(`Failed to save ground station to database: ${error.message}`);
 		}
-
-		// Clear inputs
-		inputLat = '';
-		inputLon = '';
-		inputName = '';
-		showPositionInput = false;
-
-		console.log('Ground station added:', newStation);
 	}
 
 	function toggleCone(stationId) {
@@ -143,12 +172,30 @@
 		);
 	}
 
-	function removeGroundStation(stationId) {
-		groundStations = groundStations.filter(s => s.id !== stationId);
+	async function removeGroundStation(stationId) {
+		try {
+			// Delete from database via API
+			const response = await fetch(`http://localhost:8000/api/ground-stations/${stationId}`, {
+				method: 'DELETE',
+			});
 
-		// If removed station was selected, select first available
-		if (selectedGroundStation?.id === stationId) {
-			selectedGroundStation = groundStations[0] || null;
+			if (!response.ok) {
+				throw new Error(`Failed to delete ground station: ${response.status}`);
+			}
+
+			console.log('Ground station deleted from database:', stationId);
+
+			// Remove from local state
+			groundStations = groundStations.filter(s => s.id !== stationId);
+
+			// If removed station was selected, select first available
+			if (selectedGroundStation?.id === stationId) {
+				selectedGroundStation = groundStations[0] || null;
+			}
+
+		} catch (error) {
+			console.error('Error deleting ground station:', error);
+			alert(`Failed to delete ground station from database: ${error.message}`);
 		}
 	}
 
@@ -163,36 +210,70 @@
 		websocketService.subscribeSatellites(satelliteIds);
 	}
 
-	// Save ground stations to localStorage whenever they change
-	$: if (typeof window !== 'undefined') {
-		localStorage.setItem('groundStations', JSON.stringify(groundStations));
-		if (selectedGroundStation) {
-			localStorage.setItem('selectedGroundStation', JSON.stringify(selectedGroundStation));
+	// Note: Ground stations are now stored in database, not localStorage
+	// localStorage is only used as fallback if database is unavailable
+
+	async function fetchGroundStations() {
+		try {
+			const response = await fetch('http://localhost:8000/api/ground-stations');
+			if (!response.ok) {
+				console.warn('Failed to fetch ground stations from database');
+				return [];
+			}
+
+			const stations = await response.json();
+			console.log(`Loaded ${stations.length} ground station(s) from database`);
+
+			// Transform database format to frontend format
+			return stations.map(station => ({
+				id: station.id,
+				lat: station.latitude,
+				lon: station.longitude,
+				name: station.name,
+				showCone: true // Default to showing cone
+			}));
+		} catch (error) {
+			console.error('Error fetching ground stations:', error);
+			return [];
 		}
 	}
 
-	onMount(() => {
-		// Load saved ground stations from localStorage
-		const savedStations = localStorage.getItem('groundStations');
-		if (savedStations) {
-			try {
-				groundStations = JSON.parse(savedStations);
-				console.log('Loaded', groundStations.length, 'saved ground stations');
-			} catch (error) {
-				console.error('Error loading ground stations:', error);
-			}
-		}
+	onMount(async () => {
+		// First, try to load ground stations from database
+		const dbStations = await fetchGroundStations();
 
-		// Load selected ground station
-		const savedSelected = localStorage.getItem('selectedGroundStation');
-		if (savedSelected && groundStations.length > 0) {
-			try {
-				const savedStation = JSON.parse(savedSelected);
-				// Find the station in the loaded list by ID
-				selectedGroundStation = groundStations.find(s => s.id === savedStation.id) || groundStations[0];
-			} catch (error) {
-				console.error('Error loading selected station:', error);
-				selectedGroundStation = groundStations[0] || null;
+		if (dbStations.length > 0) {
+			// Use database stations
+			groundStations = dbStations;
+			console.log('Using ground stations from database');
+
+			// Auto-select first station
+			if (groundStations.length > 0) {
+				selectedGroundStation = groundStations[0];
+			}
+		} else {
+			// Fallback to localStorage if database is empty
+			const savedStations = localStorage.getItem('groundStations');
+			if (savedStations) {
+				try {
+					groundStations = JSON.parse(savedStations);
+					console.log('Loaded', groundStations.length, 'saved ground stations from localStorage');
+				} catch (error) {
+					console.error('Error loading ground stations from localStorage:', error);
+				}
+			}
+
+			// Load selected ground station from localStorage
+			const savedSelected = localStorage.getItem('selectedGroundStation');
+			if (savedSelected && groundStations.length > 0) {
+				try {
+					const savedStation = JSON.parse(savedSelected);
+					// Find the station in the loaded list by ID
+					selectedGroundStation = groundStations.find(s => s.id === savedStation.id) || groundStations[0];
+				} catch (error) {
+					console.error('Error loading selected station:', error);
+					selectedGroundStation = groundStations[0] || null;
+				}
 			}
 		}
 
