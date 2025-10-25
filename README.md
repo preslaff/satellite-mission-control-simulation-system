@@ -279,6 +279,52 @@ Open the notebooks in this order:
 - See upcoming passes with rise/set times
 - Track azimuth and elevation angles
 
+### 🔍 Viewing More Satellites
+
+**Important:** The 3D visualization displays a **limited number of satellites** (default: 50) for performance reasons. While the backend caches and tracks all 8,697 satellites, rendering all simultaneously would severely impact frame rate.
+
+**To view more satellites:**
+
+1. **Via API Query Parameters:**
+   ```bash
+   # Increase limit in API calls
+   GET /api/satellites?group=starlink&limit=200
+
+   # View all satellites (not recommended for 3D rendering)
+   GET /api/satellites?group=starlink&limit=10000
+   ```
+
+2. **Frontend Code Modification:**
+   Edit `frontend/src/routes/+page.svelte` and increase the `limit` parameter:
+   ```javascript
+   // Find the satellite fetch call and change limit:
+   const response = await fetch(`${apiUrl}/api/satellites?group=starlink&limit=200`);
+   ```
+
+3. **Filtering by Group:**
+   Instead of loading all Starlink satellites, switch between groups:
+   ```bash
+   # Space stations only (23 satellites)
+   GET /api/satellites?group=stations
+
+   # Weather satellites (70 satellites)
+   GET /api/satellites?group=weather
+
+   # GPS satellites (32 satellites)
+   GET /api/satellites?group=gps
+   ```
+
+**Performance Recommendations:**
+- **<100 satellites:** Smooth 60 FPS on most hardware
+- **100-500 satellites:** 30-60 FPS (acceptable performance)
+- **500-1000 satellites:** 15-30 FPS (noticeable lag)
+- **>1000 satellites:** <15 FPS (poor user experience)
+
+**Alternative for Full Catalog:**
+- Use the API endpoints directly to query all satellites without 3D rendering
+- Filter by orbital parameters, position, or visibility from ground stations
+- Export data programmatically for analysis in Jupyter notebooks
+
 ## 📊 Data Sources
 
 ### Primary Sources
