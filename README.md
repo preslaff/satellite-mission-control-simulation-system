@@ -265,6 +265,7 @@ Open the notebooks in this order:
 - Ground station visibility cones
 - Satellite pass trajectories
 - Interactive camera controls
+- **Note:** Moon distance is scaled closer to Earth for better UX/UI (not to scale for design purposes)
 
 **Ground Station Management:**
 - Add/remove ground stations
