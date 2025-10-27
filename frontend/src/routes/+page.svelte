@@ -24,6 +24,8 @@
 	let inputLat = '';
 	let inputLon = '';
 	let inputName = '';
+	let isFullscreen = false;
+	let globeContainer;
 
 	// Coordinate system state
 	let coordinateSystem = 'ECI';
@@ -238,6 +240,50 @@
 		}
 	}
 
+	// Fullscreen functionality
+	function toggleFullscreen() {
+		if (!globeContainer) return;
+
+		if (!document.fullscreenElement) {
+			globeContainer.requestFullscreen().then(() => {
+				isFullscreen = true;
+			}).catch((err) => {
+				console.error('Error entering fullscreen:', err);
+			});
+		} else {
+			document.exitFullscreen().then(() => {
+				isFullscreen = false;
+			});
+		}
+	}
+
+	// Listen for fullscreen changes (e.g., user presses ESC)
+	function handleFullscreenChange() {
+		const wasFullscreen = isFullscreen;
+		isFullscreen = !!document.fullscreenElement;
+
+		// Force layout recalculation when exiting fullscreen
+		if (wasFullscreen && !isFullscreen) {
+			// Use setTimeout to ensure browser has finished fullscreen transition
+			setTimeout(() => {
+				// Dispatch resize event to trigger CSS media query re-evaluation
+				window.dispatchEvent(new Event('resize'));
+			}, 50);
+		}
+	}
+
+	// Keyboard shortcut handler
+	function handleKeydown(event) {
+		// F key for fullscreen (avoid F11 as it's browser-reserved)
+		if (event.key === 'f' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+			// Only trigger if not typing in an input field
+			if (event.target.tagName !== 'INPUT' && event.target.tagName !== 'TEXTAREA') {
+				event.preventDefault();
+				toggleFullscreen();
+			}
+		}
+	}
+
 	onMount(async () => {
 		// First, try to load ground stations from database
 		const dbStations = await fetchGroundStations();
@@ -299,11 +345,19 @@
 
 		// Connect to WebSocket
 		websocketService.connect();
+
+		// Add fullscreen event listeners
+		document.addEventListener('fullscreenchange', handleFullscreenChange);
+		document.addEventListener('keydown', handleKeydown);
 	});
 
 	onDestroy(() => {
 		// Disconnect WebSocket when component is destroyed
 		websocketService.disconnect();
+
+		// Remove fullscreen event listeners
+		document.removeEventListener('fullscreenchange', handleFullscreenChange);
+		document.removeEventListener('keydown', handleKeydown);
 	});
 </script>
 
@@ -363,7 +417,7 @@
 					<button on:click={fetchSatellites}>Retry</button>
 				</div>
 			{:else}
-				<div class="globe-wrapper" class:updating>
+				<div class="globe-wrapper" class:updating bind:this={globeContainer}>
 					<Globe3D satellites={satelliteData} groundStations={groundStations} selectedGroundStation={selectedGroundStation} />
 					{#if updating}
 						<div class="update-badge">
@@ -371,6 +425,22 @@
 							Updating data...
 						</div>
 					{/if}
+					<button
+						class="fullscreen-btn"
+						on:click={toggleFullscreen}
+						title={isFullscreen ? "Exit fullscreen (F or ESC)" : "Enter fullscreen (F)"}
+						aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+					>
+						{#if isFullscreen}
+							<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+							</svg>
+						{:else}
+							<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+							</svg>
+						{/if}
+					</button>
 					<div class="sat-info">
 						<p>{satelliteData.length} satellites tracked</p>
 						<p class="user-pos-info">📍 {groundStations.length} ground stations</p>
@@ -391,8 +461,8 @@
 
 	<!-- Position Input Modal -->
 	{#if showPositionInput}
-		<div class="modal-overlay" on:click={() => showPositionInput = false}>
-			<div class="modal-content" on:click|stopPropagation>
+		<div class="modal-overlay" role="button" tabindex="0" on:click={() => showPositionInput = false} on:keydown={(e) => e.key === 'Escape' && (showPositionInput = false)}>
+			<div class="modal-content" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
 				<h3>Set Your Position</h3>
 				<div class="input-group">
 					<label>
@@ -508,6 +578,13 @@
 		overflow: hidden;
 	}
 
+	/* Force 3-column layout for wider screens to prevent fullscreen issues */
+	@media (min-width: 1201px) {
+		.content {
+			grid-template-columns: 300px 1fr 300px !important;
+		}
+	}
+
 	.left-panel,
 	.right-panel {
 		display: flex;
@@ -528,6 +605,7 @@
 		position: relative;
 	}
 
+	/* Responsive layout for small screens only */
 	@media (max-width: 1200px) {
 		.content {
 			grid-template-columns: 1fr;
@@ -588,6 +666,45 @@
 		width: 100%;
 		height: 100%;
 		position: relative;
+	}
+
+	.globe-wrapper:fullscreen {
+		background: #000;
+	}
+
+	.fullscreen-btn {
+		position: absolute;
+		top: 1rem;
+		left: 1rem;
+		width: 40px;
+		height: 40px;
+		background: rgba(0, 0, 0, 0.6);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 8px;
+		color: white;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 100;
+		transition: all 0.3s ease;
+		backdrop-filter: blur(4px);
+	}
+
+	.fullscreen-btn:hover {
+		background: rgba(100, 108, 255, 0.8);
+		border-color: #646cff;
+		transform: scale(1.1);
+		box-shadow: 0 4px 12px rgba(100, 108, 255, 0.4);
+	}
+
+	.fullscreen-btn:active {
+		transform: scale(0.95);
+	}
+
+	.fullscreen-btn svg {
+		width: 20px;
+		height: 20px;
 	}
 
 	.update-badge {
