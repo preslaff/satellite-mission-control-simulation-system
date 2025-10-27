@@ -185,6 +185,9 @@ async def get_satellite_coordinates(
             x=pos['x'],
             y=pos['y'],
             z=pos['z'],
+            vx=vel['vx'],
+            vy=vel['vy'],
+            vz=vel['vz'],
             from_frame='ECI',
             to_frame=frame,
             timestamp=timestamp.replace(tzinfo=None),
@@ -193,15 +196,20 @@ async def get_satellite_coordinates(
             observer_alt_km=observer_alt_km
         )
 
-        return {
+        # Prepare response
+        position_coords = {k: v for k, v in transformed.items() if k not in ['vx', 'vy', 'vz']}
+
+        response = {
             'satellite': {
                 'norad_id': norad_id,
                 'name': tle_data['OBJECT_NAME']
             },
-            'coordinates': transformed,
-            'velocity_eci': vel,  # Velocity stays in ECI for now
+            'coordinates': position_coords,
+            'velocity': {'x': transformed.get('vx'), 'y': transformed.get('vy'), 'z': transformed.get('vz')},
             'timestamp': timestamp_str
         }
+
+        return response
 
     except HTTPException:
         raise

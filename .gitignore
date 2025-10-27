@@ -90,3 +90,4 @@ untitled.txt
 *.jpeg
 !frontend/public/*.png
 !frontend/public/*.jpg
+de421.bsp

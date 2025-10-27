@@ -35,105 +35,103 @@ class CoordinateTransformService:
         x: float,
         y: float,
         z: float,
-        timestamp: datetime
+        timestamp: datetime,
+        vx: Optional[float] = None,
+        vy: Optional[float] = None,
+        vz: Optional[float] = None
     ) -> Dict[str, float]:
         """
         Convert ECI (J2000/GCRS) coordinates to ECEF (Earth-Fixed/ITRS) coordinates
-
-        Args:
-            x, y, z: Position in ECI frame (km)
-            timestamp: Time of observation (UTC)
-
-        Returns:
-            Dictionary with ECEF coordinates {x, y, z} in km
         """
-        # Ensure timestamp is timezone-aware (UTC)
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=utc)
-
-        # Convert datetime to skyfield time
         t = self.ts.from_datetime(timestamp)
 
-        # Create a geocentric position in GCRS (ECI J2000 equivalent)
-        # Skyfield uses Distance objects for coordinates
-        distance_au = [x / 149597870.7, y / 149597870.7, z / 149597870.7]  # Convert km to AU
+        position_km = np.array([x, y, z])
 
-        # Create Geocentric position in GCRS frame
-        position = Geocentric(distance_au, t=t)
+        if vx is not None and vy is not None and vz is not None:
+            velocity_km_s = np.array([vx, vy, vz])
+        else:
+            velocity_km_s = None
 
-        # Transform to ITRS (Earth-fixed frame)
-        itrs_position = position.frame_xyz(itrs)
+        # Use skyfield for high-accuracy transformation
+        from skyfield.api import Distance, Velocity
+        eci_pos = Geocentric(
+            position_au=Distance(km=position_km).au,
+            velocity_au_per_d=Velocity(km_per_s=velocity_km_s).au_per_d if velocity_km_s is not None else None,
+            t=t
+        )
 
-        return {
-            'x': itrs_position.km[0],
-            'y': itrs_position.km[1],
-            'z': itrs_position.km[2],
+        itrs_pos_vel = eci_pos.frame_xyz_and_velocity(itrs)
+
+        ecef_x, ecef_y, ecef_z = itrs_pos_vel[0].km
+        result = {
+            'x': ecef_x,
+            'y': ecef_y,
+            'z': ecef_z,
             'frame': 'ECEF',
             'timestamp': timestamp.isoformat()
         }
+
+        if velocity_km_s is not None:
+            ecef_vx, ecef_vy, ecef_vz = itrs_pos_vel[1].km_per_s
+            result.update({
+                'vx': ecef_vx,
+                'vy': ecef_vy,
+                'vz': ecef_vz,
+            })
+
+        return result
 
     def ecef_to_eci(
         self,
         x: float,
         y: float,
         z: float,
-        timestamp: datetime
+        timestamp: datetime,
+        vx: Optional[float] = None,
+        vy: Optional[float] = None,
+        vz: Optional[float] = None
     ) -> Dict[str, float]:
         """
         Convert ECEF (Earth-Fixed/ITRS) coordinates to ECI (J2000/GCRS) coordinates
-
-        Args:
-            x, y, z: Position in ECEF frame (km)
-            timestamp: Time of observation (UTC)
-
-        Returns:
-            Dictionary with ECI coordinates {x, y, z} in km
         """
-        # Ensure timestamp is timezone-aware (UTC)
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=utc)
-
-        # Convert datetime to skyfield time
         t = self.ts.from_datetime(timestamp)
 
-        # Create Distance objects for ITRS coordinates
-        from skyfield.positionlib import build_position
+        ecef_pos = np.array([x, y, z])
 
-        # Convert km to AU for skyfield
-        distance_au = [x / 149597870.7, y / 149597870.7, z / 149597870.7]
+        # Get rotation matrix from GCRS (ECI) to ITRS (ECEF)
+        from skyfield.framelib import itrs
+        rotation_matrix = itrs.rotation_at(t)
 
-        # Create position in ITRS frame and transform to GCRS
-        # We need to use the reverse transformation
-        # Create a Geocentric position and specify it's in ITRS frame
-        itrs_position = Geocentric(distance_au, t=t)
+        # Transpose to get ITRS -> GCRS
+        inv_rotation_matrix = rotation_matrix.T
 
-        # To get GCRS from ITRS, we need to apply the inverse rotation
-        # Skyfield's frame_xyz gives us coordinates IN a frame FROM GCRS
-        # So we need to work backwards
+        # Transform position
+        eci_pos = inv_rotation_matrix @ ecef_pos
 
-        # Alternative approach: use geodetic intermediate
-        lat_lon_alt = self.ecef_to_geodetic(x, y, z)
-
-        # Create geographic location
-        location = wgs84.latlon(
-            lat_lon_alt['latitude'],
-            lat_lon_alt['longitude'],
-            elevation_m=lat_lon_alt['altitude'] * 1000  # Convert km to meters
-        )
-
-        # Get position in GCRS (ECI)
-        gcrs_position = location.at(t)
-
-        # Get GCRS coordinates
-        gcrs_xyz = gcrs_position.position.km
-
-        return {
-            'x': gcrs_xyz[0],
-            'y': gcrs_xyz[1],
-            'z': gcrs_xyz[2],
+        result = {
+            'x': eci_pos[0],
+            'y': eci_pos[1],
+            'z': eci_pos[2],
             'frame': 'ECI',
             'timestamp': timestamp.isoformat()
         }
+
+        if vx is not None and vy is not None and vz is not None:
+            ecef_vel = np.array([vx, vy, vz])
+            # Transform velocity: v_eci = R_inv * v_ecef + omega_earth x p_eci
+            omega_earth_eci = np.array([0, 0, 7.2921150e-5])
+            eci_vel = inv_rotation_matrix @ ecef_vel + np.cross(omega_earth_eci, eci_pos)
+            result.update({
+                'vx': eci_vel[0],
+                'vy': eci_vel[1],
+                'vz': eci_vel[2],
+            })
+
+        return result
 
     def ecef_to_geodetic(
         self,
@@ -378,7 +376,10 @@ class CoordinateTransformService:
         timestamp: Optional[datetime] = None,
         observer_lat: Optional[float] = None,
         observer_lon: Optional[float] = None,
-        observer_alt_km: Optional[float] = 0.0
+        observer_alt_km: Optional[float] = 0.0,
+        vx: Optional[float] = None,
+        vy: Optional[float] = None,
+        vz: Optional[float] = None
     ) -> Dict:
         """
         Generic transformation between any coordinate frames
@@ -405,10 +406,10 @@ class CoordinateTransformService:
 
         # Direct transformations
         if from_frame == 'ECI' and to_frame == 'ECEF':
-            return self.eci_to_ecef(x, y, z, timestamp)
+            return self.eci_to_ecef(x, y, z, timestamp, vx, vy, vz)
 
         elif from_frame == 'ECEF' and to_frame == 'ECI':
-            return self.ecef_to_eci(x, y, z, timestamp)
+            return self.ecef_to_eci(x, y, z, timestamp, vx, vy, vz)
 
         elif from_frame == 'ECEF' and to_frame == 'GEODETIC':
             return self.ecef_to_geodetic(x, y, z)
