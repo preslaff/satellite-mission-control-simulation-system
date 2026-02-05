@@ -258,6 +258,67 @@ def test_generic_transform():
     print("[PASS] Generic transform successful")
 
 
+def test_velocity_transformation():
+    """Test ECI to ECEF velocity transformation"""
+    print("\n" + "="*60)
+    print("Test 6: ECI -> ECEF Velocity Transformation")
+    print("="*60)
+
+    # Fetch ISS position and velocity
+    norad_id = 25544
+    tle_data = satellite_fetcher.fetch_by_norad_id(norad_id)
+    if not tle_data:
+        print("[ERROR] Could not fetch TLE data")
+        return
+
+    state = satellite_fetcher.propagate_position(tle_data)
+    if not state:
+        print("[ERROR] Could not propagate satellite position")
+        return
+
+    pos_eci = state['position']
+    vel_eci = state['velocity']
+    timestamp = datetime.fromisoformat(state['timestamp'].replace('Z', '+00:00'))
+
+    print(f"\nOriginal ECI Velocity:")
+    print(f"  Vx: {vel_eci['vx']:.4f} km/s")
+    print(f"  Vy: {vel_eci['vy']:.4f} km/s")
+    print(f"  Vz: {vel_eci['vz']:.4f} km/s")
+
+    # Transform to ECEF
+    transformed = coordinate_service.transform(
+        x=pos_eci['x'], y=pos_eci['y'], z=pos_eci['z'],
+        vx=vel_eci['vx'], vy=vel_eci['vy'], vz=vel_eci['vz'],
+        from_frame='ECI', to_frame='ECEF',
+        timestamp=timestamp
+    )
+
+    vel_ecef = {
+        'x': transformed['vx'],
+        'y': transformed['vy'],
+        'z': transformed['vz']
+    }
+
+    print(f"\nTransformed ECEF Velocity:")
+    print(f"  Vx: {vel_ecef['x']:.4f} km/s")
+    print(f"  Vy: {vel_ecef['y']:.4f} km/s")
+    print(f"  Vz: {vel_ecef['z']:.4f} km/s")
+
+    # Check that ECEF velocity is different from ECI velocity
+    vel_diff = (
+        (vel_eci['vx'] - vel_ecef['x'])**2 +
+        (vel_eci['vy'] - vel_ecef['y'])**2 +
+        (vel_eci['vz'] - vel_ecef['z'])**2
+    )**0.5
+
+    print(f"\n[OK] Magnitude of velocity difference: {vel_diff:.4f} km/s")
+
+    if vel_diff > 1.0: # Expect a significant difference due to Earth's rotation
+        print("[PASS] Velocity transformation produced a different and valid result.")
+    else:
+        print("[FAIL] Velocity transformation did not significantly change the velocity vector.")
+
+
 if __name__ == "__main__":
     print("\n" + "#"*60)
     print("# Coordinate Transformation Test Suite")
@@ -269,6 +330,7 @@ if __name__ == "__main__":
         test_real_satellite_enu()
         test_ned_transformation()
         test_generic_transform()
+        test_velocity_transformation()
 
         print("\n" + "="*60)
         print("[SUCCESS] ALL TESTS PASSED")
